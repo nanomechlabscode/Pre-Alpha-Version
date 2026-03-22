@@ -140,9 +140,9 @@ def generate_with_rules(filtered, selected_location, selected_grade, selected_sd
     )
     return one_line(problem_statement)
 
-
 def generate_with_openai(filtered, selected_location, selected_grade, selected_sdg_id, selected_sdg_goal,
                          subject_col, topic_col, context_col):
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key or OpenAI is None:
         raise ValueError("OpenAI unavailable")
@@ -160,28 +160,39 @@ def generate_with_openai(filtered, selected_location, selected_grade, selected_s
     topic_candidates = topic_candidates[:30]
 
     prompt = f"""
-You are an expert curriculum designer and local problem statement generator.
+You are an expert school curriculum designer.
 
-Student selection:
+Student input:
 - Location: {selected_location}
-- Grade/Class: {selected_grade}
-- SDG Goal: {selected_sdg_id} - {selected_sdg_goal}
+- Class: {selected_grade}
+- SDG Goal: {selected_sdg_goal}
 
-Available topic candidates:
+Available topics:
 {json.dumps(topic_candidates, ensure_ascii=False)}
 
-Instructions:
-- Choose the most relevant topics only.
-- Avoid odd or weak combinations.
-- Generate one accurate, precise, locally relevant problem statement.
-- The problem statement must be a single line.
-- Keep it concise and natural.
-- Do not explain your reasoning.
-- Return valid JSON only.
+Your task:
+1. Understand the real local problem in {selected_location}.
+2. Select the most relevant school topics that can help solve it.
+3. Create ONE real-life problem statement.
 
-Required JSON format:
+STRICT RULES:
+- Use very simple language (student-friendly).
+- Must sound like a real-life situation.
+- Must be practical and local (fishermen, rain, food, waste, etc.).
+- Must NOT sound like textbook or exam language.
+- MUST be ONE line only.
+- Start with real context (not "design", not "analyze").
+- Prefer "How can..." or "In {selected_location} how can..."
+
+GOOD EXAMPLE:
+Using the fish produced in Kanyakumari how can fishermen create value-added products and earn income during rainy season using solar dryers?
+
+BAD EXAMPLE:
+Design a sustainable solution for poverty using interdisciplinary concepts.
+
+Return ONLY JSON:
 {{
-  "problem_statement": "single line problem statement"
+  "problem_statement": "your sentence"
 }}
 """
 
@@ -192,6 +203,7 @@ Required JSON format:
 
     raw_text = response.output_text.strip()
     data = json.loads(raw_text)
+
     return one_line(data["problem_statement"])
 
 
