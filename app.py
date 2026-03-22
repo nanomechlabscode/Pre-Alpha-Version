@@ -17,12 +17,6 @@ st.markdown("### Kanyakumari SDG Problem Generator")
 if "generated_problem" not in st.session_state:
     st.session_state.generated_problem = None
 
-if "selected_topics" not in st.session_state:
-    st.session_state.selected_topics = None
-
-if "generation_mode" not in st.session_state:
-    st.session_state.generation_mode = None
-
 
 def find_column(df, possible_names):
     possible_names_clean = [name.strip().lower() for name in possible_names]
@@ -41,6 +35,10 @@ def clean_text(text):
 def tokenize(text):
     text = clean_text(text).lower()
     return set(re.findall(r"[a-zA-Z]+", text))
+
+
+def one_line(text):
+    return " ".join(str(text).split())
 
 
 def get_sdg_keywords(sdg_goal_text, sdg_number):
@@ -99,27 +97,16 @@ def score_topic(row, subject_col, topic_col, context_col, sdg_keywords):
 
 
 def build_problem_statement(location, grade, sdg_goal, local_context, top_topics):
-    topic_names = [clean_text(row["topic"]) for row in top_topics]
-    subject_names = [clean_text(row["subject"]) for row in top_topics]
+    topic_names = [clean_text(row["topic"]) for row in top_topics if clean_text(row["topic"])]
+    subject_names = [clean_text(row["subject"]) for row in top_topics if clean_text(row["subject"])]
 
-    if len(topic_names) >= 3:
-        integrated_line = f"using ideas from '{topic_names[0]}', '{topic_names[1]}', and '{topic_names[2]}'"
-    elif len(topic_names) == 2:
-        integrated_line = f"using ideas from '{topic_names[0]}' and '{topic_names[1]}'"
-    elif len(topic_names) == 1:
-        integrated_line = f"using ideas from '{topic_names[0]}'"
-    else:
-        integrated_line = "using relevant classroom ideas"
-
-    subject_line = ", ".join(sorted(set(subject_names))) if subject_names else "relevant subjects"
+    topic_phrase = ", ".join(topic_names[:3]) if topic_names else "relevant classroom concepts"
+    subject_phrase = ", ".join(sorted(set(subject_names))) if subject_names else "relevant subjects"
 
     statement = (
-        f"For Grade {grade} students in {location}, design a practical solution for the local challenge "
-        f"'{local_context}' related to the Sustainable Development Goal '{sdg_goal}', {integrated_line}. "
-        f"Your solution should connect concepts from {subject_line} and show how classroom learning can solve a real community problem."
+        f"For Grade {grade} students in {location}, how can {local_context} be solved through the SDG goal '{sdg_goal}' using concepts from {subject_phrase} such as {topic_phrase}?"
     )
-
-    return statement
+    return one_line(statement)
 
 
 def generate_with_rules(filtered, selected_location, selected_grade, selected_sdg_id, selected_sdg_goal,
@@ -141,7 +128,6 @@ def generate_with_rules(filtered, selected_location, selected_grade, selected_sd
             "subject": clean_text(row[subject_col]),
             "topic": clean_text(row[topic_col]),
             "context": clean_text(row[context_col]),
-            "reason": f"Rule-based relevance score: {item['score']}"
         })
 
     local_context = top_topics[0]["context"] if top_topics else f"a local issue in {selected_location}"
@@ -152,16 +138,14 @@ def generate_with_rules(filtered, selected_location, selected_grade, selected_sd
         local_context,
         top_topics
     )
-    return problem_statement, top_topics
+    return one_line(problem_statement)
 
 
 def generate_with_openai(filtered, selected_location, selected_grade, selected_sdg_id, selected_sdg_goal,
                          subject_col, topic_col, context_col):
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY not found in environment.")
-    if OpenAI is None:
-        raise ValueError("OpenAI package is not installed.")
+    if not api_key or OpenAI is None:
+        raise ValueError("OpenAI unavailable")
 
     client = OpenAI(api_key=api_key)
 
@@ -173,41 +157,31 @@ def generate_with_openai(filtered, selected_location, selected_grade, selected_s
             "context": clean_text(row[context_col]),
         })
 
-    # Keep prompt smaller and cleaner
     topic_candidates = topic_candidates[:30]
 
     prompt = f"""
-You are an education and sustainability curriculum designer.
+You are an expert curriculum designer and local problem statement generator.
 
-Task:
-A student selected:
+Student selection:
 - Location: {selected_location}
 - Grade/Class: {selected_grade}
 - SDG Goal: {selected_sdg_id} - {selected_sdg_goal}
 
-Available curriculum/topic candidates from this grade and SDG dataset:
-{json.dumps(topic_candidates, ensure_ascii=False, indent=2)}
+Available topic candidates:
+{json.dumps(topic_candidates, ensure_ascii=False)}
 
-Your job:
-1. Select the 3 most relevant topics that can realistically help solve a local real-world problem.
-2. Avoid odd or irrelevant matches.
-3. Prefer practical, interdisciplinary combinations.
-4. Generate one strong, locally relevant problem statement for a student.
-5. The statement should feel natural and meaningful, similar to:
-   "Using the fish produced in Kanyakumari district how can the fishermen do value added products and come out of poverty during rainy season with the help of solar fish dryers?"
-6. Return valid JSON only.
+Instructions:
+- Choose the most relevant topics only.
+- Avoid odd or weak combinations.
+- Generate one accurate, precise, locally relevant problem statement.
+- The problem statement must be a single line.
+- Keep it concise and natural.
+- Do not explain your reasoning.
+- Return valid JSON only.
 
 Required JSON format:
 {{
-  "problem_statement": "string",
-  "selected_topics": [
-    {{
-      "subject": "string",
-      "topic": "string",
-      "context": "string",
-      "reason": "why this topic is relevant"
-    }}
-  ]
+  "problem_statement": "single line problem statement"
 }}
 """
 
@@ -218,17 +192,9 @@ Required JSON format:
 
     raw_text = response.output_text.strip()
     data = json.loads(raw_text)
-
-    problem_statement = data["problem_statement"]
-    selected_topics = data["selected_topics"]
-
-    if not isinstance(selected_topics, list) or len(selected_topics) == 0:
-        raise ValueError("Model returned no selected topics.")
-
-    return problem_statement, selected_topics
+    return one_line(data["problem_statement"])
 
 
-# Load dataset
 try:
     df = pd.read_excel("Kanyakumari.xlsx")
 except Exception as e:
@@ -291,12 +257,7 @@ with col3:
 selected_sdg_id = int(selected_sdg_option.split(" - ")[0])
 selected_sdg_goal = selected_sdg_option.split(" - ", 1)[1]
 
-use_openai = st.checkbox("Use AI topic selection", value=True)
-
-if use_openai:
-    st.caption("AI mode uses the OpenAI API if OPENAI_API_KEY is set. Otherwise it falls back to rule-based selection.")
-
-if st.button("Generate Relevant Problem Statement"):
+if st.button("Generate Problem Statement"):
     filtered = df[
         (df[grade_col] == selected_grade) &
         (pd.to_numeric(df[sdg_id_col], errors="coerce") == selected_sdg_id)
@@ -311,32 +272,7 @@ if st.button("Generate Relevant Problem Statement"):
         st.error("No data found for selected location, class, and SDG.")
     else:
         try:
-            if use_openai:
-                problem_statement, selected_topics = generate_with_openai(
-                    filtered,
-                    selected_location,
-                    selected_grade,
-                    selected_sdg_id,
-                    selected_sdg_goal,
-                    subject_col,
-                    topic_col,
-                    context_col
-                )
-                st.session_state.generation_mode = "AI"
-            else:
-                problem_statement, selected_topics = generate_with_rules(
-                    filtered,
-                    selected_location,
-                    selected_grade,
-                    selected_sdg_id,
-                    selected_sdg_goal,
-                    subject_col,
-                    topic_col,
-                    context_col
-                )
-                st.session_state.generation_mode = "Rule-based"
-        except Exception as e:
-            problem_statement, selected_topics = generate_with_rules(
+            problem_statement = generate_with_openai(
                 filtered,
                 selected_location,
                 selected_grade,
@@ -346,23 +282,20 @@ if st.button("Generate Relevant Problem Statement"):
                 topic_col,
                 context_col
             )
-            st.session_state.generation_mode = f"Rule-based fallback ({e})"
+        except Exception:
+            problem_statement = generate_with_rules(
+                filtered,
+                selected_location,
+                selected_grade,
+                selected_sdg_id,
+                selected_sdg_goal,
+                subject_col,
+                topic_col,
+                context_col
+            )
 
-        st.session_state.generated_problem = problem_statement
-        st.session_state.selected_topics = selected_topics
+        st.session_state.generated_problem = one_line(problem_statement)
 
 if st.session_state.generated_problem:
     st.subheader("Generated Problem Statement")
     st.info(st.session_state.generated_problem)
-    st.caption(f"Generation mode: {st.session_state.generation_mode}")
-
-if st.session_state.selected_topics:
-    st.subheader("Relevant Topics Chosen by the Engine")
-    for i, item in enumerate(st.session_state.selected_topics, start=1):
-        st.markdown(
-            f"**Topic {i}:** {item.get('topic', '')}  \n"
-            f"**Subject:** {item.get('subject', '')}  \n"
-            f"**Context:** {item.get('context', '')}  \n"
-            f"**Reason:** {item.get('reason', '')}"
-        )
-        st.markdown("---")
