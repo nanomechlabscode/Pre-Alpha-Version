@@ -143,7 +143,7 @@ def generate_with_rules(filtered, selected_location, selected_grade, selected_sd
 def generate_with_openai(filtered, selected_location, selected_grade, selected_sdg_id, selected_sdg_goal,
                          subject_col, topic_col, context_col):
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("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")
     if not api_key or OpenAI is None:
         raise ValueError("OpenAI unavailable")
 
