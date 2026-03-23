@@ -1,13 +1,9 @@
 import os
 import json
-import re
 import streamlit as st
 import pandas as pd
 
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
+from google import genai
 
 st.set_page_config(page_title="TPS Engine", layout="wide")
 
@@ -32,122 +28,25 @@ def clean_text(text):
     return str(text).strip()
 
 
-def tokenize(text):
-    text = clean_text(text).lower()
-    return set(re.findall(r"[a-zA-Z]+", text))
-
-
 def one_line(text):
     return " ".join(str(text).split())
 
 
-def get_sdg_keywords(sdg_goal_text, sdg_number):
-    base_keywords = tokenize(sdg_goal_text)
+def generate_with_gemini(
+    filtered,
+    selected_location,
+    selected_grade,
+    selected_sdg_id,
+    selected_sdg_goal,
+    subject_col,
+    topic_col,
+    context_col
+):
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not found.")
 
-    sdg_map = {
-        1: {"poverty", "income", "livelihood", "employment", "work", "fishermen", "season", "earning"},
-        2: {"food", "nutrition", "hunger", "fish", "farming", "agriculture"},
-        3: {"health", "disease", "sanitation", "wellbeing", "clean"},
-        4: {"education", "learning", "school", "literacy"},
-        5: {"women", "girls", "gender", "equality", "safety"},
-        6: {"water", "sanitation", "drinking", "wastewater", "clean"},
-        7: {"energy", "electricity", "solar", "power", "circuit"},
-        8: {"jobs", "income", "industry", "economic", "livelihood", "business"},
-        9: {"innovation", "technology", "infrastructure", "machine", "design"},
-        10: {"inclusion", "equity", "access"},
-        11: {"city", "community", "housing", "transport", "waste"},
-        12: {"waste", "recycling", "plastic", "consumption", "production"},
-        13: {"climate", "rain", "weather", "disaster", "environment"},
-        14: {"sea", "ocean", "fish", "coast", "marine", "fishermen"},
-        15: {"forest", "land", "soil", "biodiversity", "plants"},
-        16: {"justice", "peace", "rights", "safety"},
-        17: {"partnership", "collaboration", "community"},
-    }
-
-    return base_keywords.union(sdg_map.get(int(sdg_number), set()))
-
-
-def score_topic(row, subject_col, topic_col, context_col, sdg_keywords):
-    subject_words = tokenize(row[subject_col])
-    topic_words = tokenize(row[topic_col])
-    context_words = tokenize(row[context_col])
-
-    score = 0
-    score += len(topic_words.intersection(sdg_keywords)) * 3
-    score += len(subject_words.intersection(sdg_keywords)) * 2
-    score += len(context_words.intersection(sdg_keywords)) * 4
-
-    topic_text = clean_text(row[topic_col]).lower()
-    subject_text = clean_text(row[subject_col]).lower()
-
-    if "food" in topic_text and ("hunger" in sdg_keywords or "nutrition" in sdg_keywords or "fish" in sdg_keywords):
-        score += 5
-    if "rain" in topic_text and ("rain" in sdg_keywords or "climate" in sdg_keywords or "season" in sdg_keywords):
-        score += 5
-    if ("electric" in topic_text or "circuit" in topic_text or "energy" in subject_text) and (
-        "solar" in sdg_keywords or "energy" in sdg_keywords or "power" in sdg_keywords
-    ):
-        score += 5
-    if "waste" in topic_text and ("waste" in sdg_keywords or "plastic" in sdg_keywords):
-        score += 5
-    if "fish" in context_words and ("fish" in sdg_keywords or "marine" in sdg_keywords or "fishermen" in sdg_keywords):
-        score += 5
-
-    return score
-
-
-def build_problem_statement(location, grade, sdg_goal, local_context, top_topics):
-    topic_names = [clean_text(row["topic"]) for row in top_topics if clean_text(row["topic"])]
-    subject_names = [clean_text(row["subject"]) for row in top_topics if clean_text(row["subject"])]
-
-    topic_phrase = ", ".join(topic_names[:3]) if topic_names else "relevant classroom concepts"
-    subject_phrase = ", ".join(sorted(set(subject_names))) if subject_names else "relevant subjects"
-
-    statement = (
-        f"For Grade {grade} students in {location}, how can {local_context} be solved through the SDG goal '{sdg_goal}' using concepts from {subject_phrase} such as {topic_phrase}?"
-    )
-    return one_line(statement)
-
-
-def generate_with_rules(filtered, selected_location, selected_grade, selected_sdg_id, selected_sdg_goal,
-                        subject_col, topic_col, context_col):
-    sdg_keywords = get_sdg_keywords(selected_sdg_goal, selected_sdg_id)
-
-    scored_rows = []
-    for _, row in filtered.iterrows():
-        score = score_topic(row, subject_col, topic_col, context_col, sdg_keywords)
-        scored_rows.append({"row": row, "score": score})
-
-    scored_rows = sorted(scored_rows, key=lambda x: x["score"], reverse=True)
-    top_scored = scored_rows[:3]
-
-    top_topics = []
-    for item in top_scored:
-        row = item["row"]
-        top_topics.append({
-            "subject": clean_text(row[subject_col]),
-            "topic": clean_text(row[topic_col]),
-            "context": clean_text(row[context_col]),
-        })
-
-    local_context = top_topics[0]["context"] if top_topics else f"a local issue in {selected_location}"
-    problem_statement = build_problem_statement(
-        selected_location,
-        selected_grade,
-        selected_sdg_goal,
-        local_context,
-        top_topics
-    )
-    return one_line(problem_statement)
-
-def generate_with_openai(filtered, selected_location, selected_grade, selected_sdg_id, selected_sdg_goal,
-                         subject_col, topic_col, context_col):
-
-    api_key = os.getenv("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")
-    if not api_key or OpenAI is None:
-        raise ValueError("OpenAI unavailable")
-
-    client = OpenAI(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
     topic_candidates = []
     for _, row in filtered.iterrows():
@@ -160,50 +59,47 @@ def generate_with_openai(filtered, selected_location, selected_grade, selected_s
     topic_candidates = topic_candidates[:30]
 
     prompt = f"""
-You are an expert school curriculum designer.
+You are an expert school curriculum designer for Nano Mech Labs.
 
 Student input:
 - Location: {selected_location}
 - Class: {selected_grade}
-- SDG Goal: {selected_sdg_goal}
+- SDG Goal: {selected_sdg_id} - {selected_sdg_goal}
 
-Available topics:
+Available curriculum topics:
 {json.dumps(topic_candidates, ensure_ascii=False)}
 
-Your task:
-1. Understand the real local problem in {selected_location}.
-2. Select the most relevant school topics that can help solve it.
-3. Create ONE real-life problem statement.
+Task:
+Generate exactly ONE problem statement.
 
-STRICT RULES:
-- Use very simple language (student-friendly).
-- Must sound like a real-life situation.
-- Must be practical and local (fishermen, rain, food, waste, etc.).
-- Must NOT sound like textbook or exam language.
-- MUST be ONE line only.
-- Start with real context (not "design", not "analyze").
-- Prefer "How can..." or "In {selected_location} how can..."
+Strict rules:
+- Use only simple, student-friendly language.
+- The problem statement must be realistic and locally relevant.
+- It must connect the SDG goal with the most relevant school topics.
+- It must feel natural, practical, and easy to understand for students.
+- It must be a single line.
+- It must be precise, not generic.
+- It should sound similar in quality to:
+  "Using the fish produced in Kanyakumari district how can the fishermen do value added products and come out of poverty during rainy season with the help of solar fish dryers?"
+- Avoid textbook words like "analyze", "design a framework", "multidisciplinary", or "sustainability challenge".
+- Prefer natural styles like:
+  "How can..."
+  "In Kanyakumari how can..."
+  "Using ... how can..."
 
-GOOD EXAMPLE:
-Using the fish produced in Kanyakumari how can fishermen create value-added products and earn income during rainy season using solar dryers?
-
-BAD EXAMPLE:
-Design a sustainable solution for poverty using interdisciplinary concepts.
-
-Return ONLY JSON:
+Return valid JSON only in this format:
 {{
-  "problem_statement": "your sentence"
+  "problem_statement": "..."
 }}
 """
 
-    response = client.responses.create(
-        model="gpt-4.1-mini",
-        input=prompt
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
     )
 
-    raw_text = response.output_text.strip()
+    raw_text = response.text.strip()
     data = json.loads(raw_text)
-
     return one_line(data["problem_statement"])
 
 
@@ -284,7 +180,7 @@ if st.button("Generate Problem Statement"):
         st.error("No data found for selected location, class, and SDG.")
     else:
         try:
-            problem_statement = generate_with_openai(
+            problem_statement = generate_with_gemini(
                 filtered,
                 selected_location,
                 selected_grade,
@@ -294,19 +190,9 @@ if st.button("Generate Problem Statement"):
                 topic_col,
                 context_col
             )
-        except Exception:
-            problem_statement = generate_with_rules(
-                filtered,
-                selected_location,
-                selected_grade,
-                selected_sdg_id,
-                selected_sdg_goal,
-                subject_col,
-                topic_col,
-                context_col
-            )
-
-        st.session_state.generated_problem = one_line(problem_statement)
+            st.session_state.generated_problem = one_line(problem_statement)
+        except Exception as e:
+            st.error(f"Gemini generation failed: {e}")
 
 if st.session_state.generated_problem:
     st.subheader("Generated Problem Statement")
