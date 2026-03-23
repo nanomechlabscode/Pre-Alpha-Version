@@ -182,24 +182,22 @@ if st.button("Generate Problem Statement"):
             try:
                 with st.spinner("Generating problem statement..."):
                     problem_statement = generate_with_gemini(
-                    filtered,
-                    selected_location,
-                    selected_grade,
-                    selected_sdg_id,
-                    selected_sdg_goal,
-                    subject_col,
-                    topic_col,
-                    context_col
-                )
+                        filtered,
+                        selected_location,
+                        selected_grade,
+                        selected_sdg_id,
+                        selected_sdg_goal,
+                        subject_col,
+                        topic_col,
+                        context_col
+                    )
 
                 st.session_state.generated_problem = one_line(problem_statement)
-
-                # ✅ SAVE CACHE KEY
                 st.session_state.last_cache_key = cache_key
 
-            except Exception:
+            except Exception as e:
                 st.session_state.generated_problem = None
-                st.error("AI service is temporarily busy. Please try again after some time.")
+                st.error(f"Error: {str(e)}")
 
 if st.session_state.generated_problem:
     st.subheader("Generated Problem Statement")
