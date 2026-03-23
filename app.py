@@ -3,7 +3,7 @@ import json
 import streamlit as st
 import pandas as pd
 
-import google.generativeai as genai
+from google import genai
 
 st.set_page_config(page_title="TPS Engine", layout="wide")
 
@@ -48,7 +48,7 @@ def generate_with_gemini(
     if not api_key:
         raise ValueError("GEMINI_API_KEY not found.")
 
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
     topic_candidates = []
     for _, row in filtered.iterrows():
@@ -84,11 +84,12 @@ Rules:
   "Using ... how can..."
 """
 
-    model = genai.GenerativeModel("gemini-1.5-pro-latest")
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
 
-   
-    return one_line(response.text.strip().replace('"', ''))
+    return one_line(response.text)
 
 try:
     df = pd.read_excel("Kanyakumari.xlsx")
