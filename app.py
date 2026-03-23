@@ -12,6 +12,8 @@ st.markdown("### Kanyakumari SDG Problem Generator")
 
 if "generated_problem" not in st.session_state:
     st.session_state.generated_problem = None
+if "last_cache_key" not in st.session_state:
+    st.session_state.last_cache_key = None
 
 
 def find_column(df, possible_names):
@@ -165,34 +167,54 @@ with col3:
 selected_sdg_id = int(selected_sdg_option.split(" - ")[0])
 selected_sdg_goal = selected_sdg_option.split(" - ", 1)[1]
 
+
+cache_key = f"{selected_location}|{selected_grade}|{selected_sdg_id}"
+
 if st.button("Generate Problem Statement"):
-    filtered = df[
-        (df[grade_col] == selected_grade) &
-        (pd.to_numeric(df[sdg_id_col], errors="coerce") == selected_sdg_id)
-    ].copy()
 
-    if location_col:
-        filtered = filtered[
-            filtered[location_col].astype(str).str.strip().str.lower() == selected_location.strip().lower()
-        ]
+   
+    if (
+        st.session_state.last_cache_key == cache_key and
+        st.session_state.generated_problem
+    ):
+        pass  # reuse old result
 
-    if filtered.empty:
-        st.error("No data found for selected location, class, and SDG.")
     else:
-        try:
-            problem_statement = generate_with_gemini(
-                filtered,
-                selected_location,
-                selected_grade,
-                selected_sdg_id,
-                selected_sdg_goal,
-                subject_col,
-                topic_col,
-                context_col
-            )
-            st.session_state.generated_problem = one_line(problem_statement)
-        except Exception as e:
-            st.error(f"Gemini generation failed: {e}")
+        filtered = df[
+            (df[grade_col] == selected_grade) &
+            (pd.to_numeric(df[sdg_id_col], errors="coerce") == selected_sdg_id)
+        ].copy()
+
+        if location_col:
+            filtered = filtered[
+                filtered[location_col].astype(str).str.strip().str.lower()
+                == selected_location.strip().lower()
+            ]
+
+        if filtered.empty:
+            st.error("No data found for selected location, class, and SDG.")
+        else:
+            try:
+                with st.spinner("Generating problem statement..."):
+                    problem_statement = generate_with_gemini(
+                    filtered,
+                    selected_location,
+                    selected_grade,
+                    selected_sdg_id,
+                    selected_sdg_goal,
+                    subject_col,
+                    topic_col,
+                    context_col
+                )
+
+                st.session_state.generated_problem = one_line(problem_statement)
+
+                # ✅ SAVE CACHE KEY
+                st.session_state.last_cache_key = cache_key
+
+            except Exception:
+                st.session_state.generated_problem = None
+                st.error("AI service is temporarily busy. Please try again after some time.")
 
 if st.session_state.generated_problem:
     st.subheader("Generated Problem Statement")
