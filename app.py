@@ -69,39 +69,39 @@ Student input:
 Available curriculum topics:
 {json.dumps(topic_candidates, ensure_ascii=False)}
 
-Task:
 Generate exactly ONE problem statement.
 
-Strict rules:
-- Use only simple, student-friendly language.
-- The problem statement must be realistic and locally relevant.
-- It must connect the SDG goal with the most relevant school topics.
-- It must feel natural, practical, and easy to understand for students.
-- It must be a single line.
-- It must be precise, not generic.
-- It should sound similar in quality to:
-  "Using the fish produced in Kanyakumari district how can the fishermen do value added products and come out of poverty during rainy season with the help of solar fish dryers?"
-- Avoid textbook words like "analyze", "design a framework", "multidisciplinary", or "sustainability challenge".
-- Prefer natural styles like:
+Rules:
+- Use simple student-friendly language.
+- Make it realistic and locally relevant.
+- Make it one line only.
+- Make it precise and easy to understand.
+- Prefer styles like:
   "How can..."
-  "In Kanyakumari how can..."
+  "In {selected_location} how can..."
   "Using ... how can..."
-
-Return valid JSON only in this format:
-{{
-  "problem_statement": "..."
-}}
 """
 
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
+        config={
+            "response_mime_type": "application/json",
+            "response_json_schema": {
+                "type": "object",
+                "properties": {
+                    "problem_statement": {
+                        "type": "string",
+                        "description": "A single-line, student-friendly, locally relevant problem statement."
+                    }
+                },
+                "required": ["problem_statement"]
+            }
+        }
     )
 
-    raw_text = response.text.strip()
-    data = json.loads(raw_text)
+    data = json.loads(response.text)
     return one_line(data["problem_statement"])
-
 
 try:
     df = pd.read_excel("Kanyakumari.xlsx")
